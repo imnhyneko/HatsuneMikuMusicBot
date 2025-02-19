@@ -82,8 +82,8 @@ sudo apt install ffmpeg
 
 #### 🔹 Linux (Arch-distro):
 ```bash
-yay/paru -Syu
-yay/paru -S ffmpeg
+yay -Syu or paru -Syu
+yay -S ffmpeg or paru -S ffmpeg
 ```
 
 #### 🔹 Linux (CentOS/RHEL):
