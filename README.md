@@ -4,75 +4,75 @@
 [![GitHub Stars](https://img.shields.io/github/stars/imnhyneko/HatsuneMikuMusicBot?style=social)](https://github.com/imnhyneko/HatsuneMikuMusicBot)
 [![GitHub Forks](https://img.shields.io/github/forks/imnhyneko/HatsuneMikuMusicBot?style=social)](https://github.com/imnhyneko/HatsuneMikuMusicBot)
 
-**Miku Music Bot** là bot Discord giúp bạn thưởng thức âm nhạc từ YouTube ngay trong kênh thoại của mình. Được xây dựng bằng `discord.py`, `yt-dlp` và `ffmpeg`, bot mang đến trải nghiệm âm nhạc mượt mà và thú vị.
+**Miku Music Bot** is a Discord bot that allows you to enjoy music from YouTube directly in your voice channel. Built with `discord.py`, `yt-dlp`, and `ffmpeg`, it delivers a smooth and enjoyable music experience.
 
 ---
 
-## 🌟 Tính năng nổi bật
+## 🌟 Key Features
 
-- 🎵 **Phát nhạc từ YouTube**: Hỗ trợ phát nhạc bằng link trực tiếp hoặc tìm kiếm theo tên bài hát.
-- 📜 **Hàng chờ phát nhạc**: Tạo danh sách phát yêu thích của bạn.
-- ⏭️ **Bỏ qua bài hát**: Chuyển sang bài tiếp theo trong danh sách.
-- ⏹️ **Dừng phát nhạc**: Ngừng nhạc và xoá danh sách phát.
-- 🧾 **Xem danh sách phát**: Hiển thị danh sách các bài hát đang chờ.
-- 🎧 **Đang phát**: Hiển thị bài hát hiện đang phát.
-- 😴 **Tự động rời kênh**: Tiết kiệm tài nguyên bằng cách tự động rời kênh sau khi danh sách phát trống.
-- 🔎 **Tìm kiếm và chọn bài hát**: Chọn bài hát từ danh sách kết quả tìm kiếm.
-- ⌨️ **Hỗ trợ lệnh alias**: Cung cấp các alias giúp nhập lệnh nhanh hơn.
-- 🖼️ **Hình đại diện Hatsune Miku**: Mang đến sự dễ thương cho server của bạn.
+- 🎵 **Play Music from YouTube**: Supports playing music via direct links or search queries.
+- 📜 **Queue System**: Create your favorite playlist.
+- ⏭️ **Skip Tracks**: Jump to the next song in the queue.
+- ⏹️ **Stop Music**: Stop playback and clear the queue.
+- 🧾 **View Queue**: Display the upcoming songs.
+- 🎧 **Now Playing**: Show details of the currently playing track.
+- 😴 **Auto-Leave**: Automatically leaves the voice channel when the queue is empty to save resources.
+- 🔎 **Search and Select**: Pick songs from a list of search results.
+- ⌨️ **Command Aliases**: Shortened command options for convenience.
+- 🖼️ **Hatsune Miku Avatar**: Adds a cute touch to your server.
 
 ---
 
-## ⚙️ Yêu cầu hệ thống
+## ⚙️ System Requirements
 
 - 🐍 Python 3.7+
-- 📦 Các thư viện Python: Xem trong tệp `requirements.txt`
+- 📦 Required Python libraries: See `requirements.txt`
 - 🔊 `ffmpeg`
 
 ---
 
-## 🚀 Cài đặt
+## 🚀 Installation
 
-### 1️⃣ Clone Repository
+### 1️⃣ Clone the Repository
 
-Sao chép mã nguồn về máy của bạn bằng Git:
+Clone the source code to your local machine using Git:
 
 ```bash
 git clone https://github.com/imnhyneko/HatsuneMikuMusicBot.git
 cd HatsuneMikuMusicBot
 ```
 
-### 2️⃣ Cấu hình tệp `.env`
+### 2️⃣ Configure the `.env` File
 
-Bot cần **Discord Bot Token** để hoạt động.
+The bot requires a **Discord Bot Token** to function.
 
-- Tạo file `.env` từ `.env.example`.
-- Thêm token vào `.env`:
+- Create a `.env` file from `.env.example`.
+- Add your token to `.env`:
 
 ```ini
 DISCORD_BOT_TOKEN=Your_Discord_Bot_Token_Here
 ```
 
-Cách lấy **Discord Bot Token**:
+How to obtain a **Discord Bot Token**:
 
-1. Truy cập [Discord Developer Portal](https://discord.com/developers/applications).
-2. Tạo ứng dụng mới hoặc chọn ứng dụng có sẵn.
-3. Vào tab "Bot", tạo bot mới.
-4. Sao chép token và dán vào `.env`.
+1. Visit [Discord Developer Portal](https://discord.com/developers/applications).
+2. Create a new application or select an existing one.
+3. Navigate to the "Bot" tab and create a bot.
+4. Copy the token and paste it into `.env`.
 
-### 3️⃣ Cài đặt thư viện cần thiết
+### 3️⃣ Install Dependencies
 
-Dùng pip để cài đặt các thư viện từ `requirements.txt`:
+Use pip to install the required libraries from `requirements.txt`:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 4️⃣ Cài đặt ffmpeg
+### 4️⃣ Install ffmpeg
 
 #### 🔹 Windows:
-- Tải xuống từ [trang chủ ffmpeg](https://ffmpeg.org/download.html) và giải nén.
-- Thêm thư mục `bin` của ffmpeg vào biến môi trường `PATH`.
+- Download from the [ffmpeg official website](https://ffmpeg.org/download.html) and extract.
+- Add the `bin` folder of ffmpeg to your `PATH` environment variable.
 
 #### 🔹 Linux (Ubuntu/Debian):
 ```bash
@@ -92,9 +92,9 @@ sudo yum update
 sudo yum install ffmpeg
 ```
 
-### 5️⃣ Chạy bot
+### 5️⃣ Run the Bot
 
-Sau khi cài đặt đầy đủ, chạy bot bằng lệnh:
+After completing the setup, start the bot with:
 
 ```bash
 python main.py
@@ -102,37 +102,37 @@ python main.py
 
 ---
 
-## 🎮 Cách sử dụng
+## 🎮 Usage
 
-Khi bot hoạt động, bạn có thể sử dụng các lệnh sau trong Discord:
+Once the bot is running, you can use the following commands in Discord:
 
-| Lệnh | Chức năng | Alias |
+| Command | Description | Aliases |
 |------|----------|-------|
-| `miku!play <tên bài hát/link YouTube>` | Phát nhạc từ YouTube | `miku!p`, `miku!phat` |
-| `miku!skip` | Bỏ qua bài hát hiện tại | `miku!sk`, `miku!boqua` |
-| `miku!stop` | Dừng nhạc và rời kênh | `miku!st`, `miku!dung` |
-| `miku!queue [trang]` | Xem danh sách phát | `miku!q`, `miku!list` |
-| `miku!nowplaying` | Hiển thị bài hát hiện tại | `miku!np`, `miku!now` |
-| `miku!help` | Hiển thị danh sách lệnh | `miku!h`, `miku!trogiup` |
-| `miku!join` | Yêu cầu bot vào kênh thoại | `miku!j`, `miku!vao` |
+| `miku!play <song name/YouTube link>` | Play music from YouTube | `miku!p`, `miku!phat` |
+| `miku!skip` | Skip the current track | `miku!sk`, `miku!boqua` |
+| `miku!stop` | Stop playback and leave the channel | `miku!st`, `miku!dung` |
+| `miku!queue [page]` | View the queue | `miku!q`, `miku!list` |
+| `miku!nowplaying` | Display the currently playing track | `miku!np`, `miku!now` |
+| `miku!help` | Show command list | `miku!h`, `miku!trogiup` |
+| `miku!join` | Request the bot to join a voice channel | `miku!j`, `miku!vao` |
 
 ---
 
-## 📜 Giấy phép
+## 📜 License
 
-Dự án này được phát hành theo giấy phép **Apache 2.0** – xem tệp `LICENSE` để biết thêm chi tiết.
-
----
-
-## 💖 Đóng góp
-
-Mọi đóng góp đều được hoan nghênh! Nếu bạn muốn đóng góp, hãy tạo một **pull request**.
+This project is released under the **Apache 2.0** license – see the `LICENSE` file for details.
 
 ---
 
-## 🙏 Cảm ơn
+## 💖 Contributions
 
-Cảm ơn bạn đã sử dụng **Miku Music Bot**! Nếu gặp bất kỳ lỗi nào, vui lòng báo cáo trong phần **Issues** trên GitHub.
+Contributions are welcome! If you'd like to contribute, feel free to create a **pull request**.
+
+---
+
+## 🙏 Acknowledgments
+
+Thank you for using **Miku Music Bot**! If you encounter any issues, please report them in the **Issues** section on GitHub.
 
 ---
 
