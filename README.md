@@ -14,9 +14,9 @@
 
 ---
 
-## 🎤 About Miku v2.1.0
+## 🎤 About Miku
 
-**HatsuneMiku v2** is not just another music bot. It's a complete rewrite of the original, infused with the power of **Google's Gemini AI** to create a smarter, more reliable, and more interactive musical companion for your Discord server. This `v2.1.0` release focuses on stability, major bug fixes, and enhancing the AI experience.
+**HatsuneMiku** is not just another music bot. It's a complete rewrite of the original, infused with the power of **Google's Gemini AI** to create a smarter, more reliable, and more interactive musical companion for your Discord server.
 
 This project, codenamed **Project Galaxy**, aims to take your server's music experience to the stars.
 
