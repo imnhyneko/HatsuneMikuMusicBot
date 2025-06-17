@@ -1,6 +1,6 @@
 <div align="center">
-  <img src="https://i.imgur.com/U22EGEE.png" alt="Hatsune Miku v2" width="200"/>
-  <h1>HatsuneMiku v2.1.0 - Project Galaxy</h1>
+  <img src="https://cdn.discordapp.com/attachments/1319215782089199616/1384576393521795152/FnBDe4WXwAQ9sjv.jpg?ex=6852eec0&is=68519d40&hm=fbf4e41a233317bb508ae993c4e07494267691af9786e3cf65773a73868f3797&" alt="Hatsune Miku" width="200"/>
+  <h1>HatsuneMiku - Project Galaxy</h1>
   <p>
     An intelligent, feature-rich Discord music bot powered by Google's Gemini AI.
   </p>
