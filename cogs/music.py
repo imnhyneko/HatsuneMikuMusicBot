@@ -1,3 +1,5 @@
+# cogs/music.py
+
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -12,15 +14,17 @@ import random
 import aiohttp
 import re
 from typing import Union, Optional
+import google.generativeai as genai
 
-# === THIẾT LẬP VÀ CLASS HELPER ===
+# === CONSTANTS & HELPERS ===
 log = logging.getLogger(__name__)
 AnyContext = Union[commands.Context, discord.Interaction]
-YTDL_SEARCH_OPTIONS = {'format':'bestaudio/best','noplaylist':True,'nocheckcertificate':True,'ignoreerrors':False,'logtostderr':False,'quiet':True,'no_warnings':True,'default_search':'ytsearch10','source_address':'0.0.0.0','extract_flat':'search'}
+YTDL_SEARCH_OPTIONS = {'format':'bestaudio/best','noplaylist':True,'nocheckcertificate':True,'ignoreerrors':False,'logtostderr':False,'quiet':True,'no_warnings':True,'default_search':'ytsearch7','source_address':'0.0.0.0','extract_flat':'search'}
 YTDL_DOWNLOAD_OPTIONS = {'format':'bestaudio[ext=m4a]/bestaudio/best','outtmpl':'cache/%(id)s.%(ext)s','restrictfilenames':True,'noplaylist':True,'nocheckcertificate':True,'ignoreerrors':False,'logtostderr':False,'quiet':True,'no_warnings':True,'source_address':'0.0.0.0','cachedir':False}
 FFMPEG_OPTIONS = {'before_options':'','options':'-vn'}
 class LoopMode(Enum): OFF = 0; SONG = 1; QUEUE = 2
 
+# === DATA CLASSES ===
 class Song:
     """Đại diện cho một bài hát."""
     def __init__(self, data, requester: discord.Member | discord.User):
@@ -37,8 +41,7 @@ class Song:
             except OSError as e: log.error(f"Lỗi khi xóa file cache {self.filepath}: {e}")
     @classmethod
     async def search_only(cls, query: str, requester: discord.Member | discord.User):
-        loop = asyncio.get_running_loop()
-        partial = functools.partial(yt_dlp.YoutubeDL(YTDL_SEARCH_OPTIONS).extract_info, query, download=False)
+        loop = asyncio.get_running_loop(); partial = functools.partial(yt_dlp.YoutubeDL(YTDL_SEARCH_OPTIONS).extract_info, query, download=False)
         try:
             data = await loop.run_in_executor(None, partial);
             if not data or 'entries' not in data or not data['entries']: return []
@@ -101,37 +104,67 @@ class SearchView(discord.ui.View):
 
 class GuildState:
     """Quản lý trạng thái của từng server."""
-    def __init__(self, bot: commands.Bot, guild_id: int):self.bot=bot;self.guild_id=guild_id;self.queue=asyncio.Queue[Song]();self.voice_client:discord.VoiceClient|None=None;self.now_playing_message:discord.Message|None=None;self.current_song:Song|None=None;self.loop_mode=LoopMode.OFF;self.player_task:asyncio.Task|None=None;self.last_ctx:AnyContext|None=None;self.song_finished_event=asyncio.Event();self.volume=0.5
+    def __init__(self, bot: commands.Bot, guild_id: int):
+        self.bot = bot; self.guild_id = guild_id; self.queue = asyncio.Queue[Song](); self.voice_client: discord.VoiceClient | None = None
+        self.now_playing_message: discord.Message | None = None; self.current_song: Song | None = None; self.loop_mode = LoopMode.OFF
+        self.player_task: asyncio.Task | None = None; self.last_ctx: AnyContext | None = None; self.song_finished_event = asyncio.Event()
+        self.volume = 0.5; self.is_seeking = False
+
     async def player_loop(self):
         await self.bot.wait_until_ready()
         while True:
+            self.song_finished_event.clear()
+            
+            # Xử lý bài hát vừa phát xong (nếu có)
+            previous_song = self.current_song
+            if previous_song:
+                if self.loop_mode == LoopMode.QUEUE:
+                    await self.queue.put(previous_song)
+                elif self.loop_mode != LoopMode.SONG:
+                    previous_song.cleanup()
+            
+            # Lấy bài hát tiếp theo
             try:
-                previous_song=self.current_song
-                if previous_song:
-                    if self.loop_mode==LoopMode.SONG:log.info(f"Guild {self.guild_id}: Lặp lại bài hát '{previous_song.title}'.")
-                    elif self.loop_mode==LoopMode.QUEUE:log.info(f"Guild {self.guild_id}: Thêm '{previous_song.title}' vào cuối hàng đợi lặp lại.");await self.queue.put(previous_song)
-                    else:previous_song.cleanup()
-                if self.loop_mode!=LoopMode.SONG or not self.current_song:self.current_song=await asyncio.wait_for(self.queue.get(),timeout=300)
-                log.info(f"Guild {self.guild_id}: Lấy bài hát '{self.current_song.title}' từ hàng đợi.")
-                await self.update_now_playing_message(new_song=True)
-                source=discord.PCMVolumeTransformer(discord.FFmpegPCMAudio(self.current_song.filepath,**FFMPEG_OPTIONS),volume=self.volume)
-                self.song_finished_event.clear()
-                self.voice_client.play(source,after=lambda e:self.bot.loop.call_soon_threadsafe(self.song_finished_event.set))
-                await self.song_finished_event.wait()
-                log.info(f"Guild {self.guild_id}: Sự kiện kết thúc bài hát '{self.current_song.title}' được kích hoạt.")
+                # Nếu không lặp lại bài hát, lấy bài mới từ hàng đợi
+                if self.loop_mode != LoopMode.SONG:
+                    self.current_song = await asyncio.wait_for(self.queue.get(), timeout=300)
+                # Nếu lặp lại, self.current_song vẫn giữ nguyên
             except asyncio.TimeoutError:
                 log.info(f"Guild {self.guild_id} không hoạt động trong 5 phút, bắt đầu dọn dẹp.")
                 if self.last_ctx and self.last_ctx.channel:
                     try: await self.last_ctx.channel.send("😴 Đã tự động ngắt kết nối do không hoạt động.")
                     except discord.Forbidden: pass
-                await self.cleanup();break
-            except asyncio.CancelledError:log.info(f"Player loop cho guild {self.guild_id} đã bị hủy.");break
+                return await self.cleanup()
+
+            # Phát bài hát mới
+            try:
+                log.info(f"Guild {self.guild_id}: Lấy bài hát '{self.current_song.title}' từ hàng đợi.")
+                await self.update_now_playing_message(new_song=True)
+                source = discord.PCMVolumeTransformer(discord.FFmpegPCMAudio(self.current_song.filepath,**FFMPEG_OPTIONS),volume=self.volume)
+                self.voice_client.play(source,after=lambda e:self.bot.loop.call_soon_threadsafe(self.song_finished_event.set))
+                await self.song_finished_event.wait()
+                
+                # Bỏ qua logic sau khi phát xong nếu đang seek
+                if self.is_seeking:
+                    self.is_seeking = False
+                    continue
+
+                log.info(f"Guild {self.guild_id}: Sự kiện kết thúc bài hát '{self.current_song.title}' được kích hoạt.")
             except Exception as e:
                 log.error(f"Lỗi nghiêm trọng trong player loop của guild {self.guild_id}:",exc_info=e)
                 if self.last_ctx and self.last_ctx.channel:
                     try: await self.last_ctx.channel.send(f"🤖 Gặp lỗi nghiêm trọng, Miku cần khởi động lại trình phát nhạc. Lỗi: `{e}`")
                     except discord.Forbidden: pass
-                await self.cleanup();break
+                return await self.cleanup()
+
+            # Kiểm tra nếu hàng đợi trống sau khi bài hát kết thúc
+            if self.queue.empty() and self.loop_mode == LoopMode.OFF:
+                log.info(f"Guild {self.guild_id}: Hàng đợi đã hết.")
+                if self.last_ctx and self.last_ctx.channel:
+                    try: await self.last_ctx.channel.send("🎶 Hàng đợi đã kết thúc! Miku đi nghỉ đây (´｡• ᵕ •｡`) ♡")
+                    except discord.Forbidden: pass
+                return await self.cleanup()
+
     async def update_now_playing_message(self,new_song=False):
         if not self.last_ctx:return
         if not self.current_song and self.now_playing_message:
@@ -177,7 +210,7 @@ class GuildState:
     async def cleanup(self):
         log.info(f"Bắt đầu cleanup cho guild {self.guild_id}");self.bot.dispatch("session_end",self.guild_id)
         if self.player_task:self.player_task.cancel()
-        if self.current_song:self.current_song.cleanup()
+        if self.current_song:self.current_song.cleanup(); self.current_song = None
         while not self.queue.empty():
             try:song=self.queue.get_nowait();song.cleanup()
             except asyncio.QueueEmpty:break
@@ -186,110 +219,30 @@ class GuildState:
             try:await self.now_playing_message.delete()
             except discord.NotFound:pass
 
-# === COG GENERAL ===
-class General(commands.Cog):
-    """Chứa các lệnh chung và xử lý sự kiện."""
-    def __init__(self, bot: commands.Bot):
-        self.bot = bot
-    
-    @commands.Cog.listener()
-    async def on_guild_join(self, guild: discord.Guild):
-        """Tự động đồng bộ lệnh khi bot tham gia server mới."""
-        log.info(f"Đã tham gia server mới: {guild.name} ({guild.id}). Bắt đầu đồng bộ lệnh...")
-        try:
-            await self.bot.tree.sync(guild=guild)
-            log.info(f"Đã đồng bộ lệnh thành công cho {guild.name}.")
-        except Exception as e:
-            log.error(f"Lỗi khi đồng bộ lệnh cho server mới {guild.name}:", exc_info=e)
-
-    def _create_help_embed(self) -> discord.Embed:
-        prefix = self.bot.command_prefix
-        embed = discord.Embed(
-            title="✨ Menu trợ giúp của Miku ✨",
-            description="Miku sẵn sàng giúp bạn thưởng thức âm nhạc tuyệt vời nhất! (´• ω •`) ♡",
-            color=0x39d0d6 # Miku's color
-        )
-        embed.set_author(name=self.bot.user.name, icon_url=self.bot.user.display_avatar.url)
-        embed.set_thumbnail(url="https://cdn.discordapp.com/attachments/1319215782089199616/1384577698315370587/6482863b5c8c3328433411f2-anime-hatsune-miku-plush-toy-series-snow.gif?ex=6852eff7&is=68519e77&hm=c89ddf3b2d3d2801118f537a45a6b67fcdd77cdb5c28d17ec6df791a040bac23&")
-
-        # --- Lệnh Âm Nhạc được chia nhỏ ---
-        
-        embed.add_field(
-            name="🎧 Lệnh Âm Nhạc (Cơ bản)",
-            value=f"""
-            `play <tên/url>`: Phát hoặc tìm kiếm bài hát.
-            `pause`: Tạm dừng/tiếp tục phát.
-            `skip`: Bỏ qua bài hát hiện tại.
-            `stop`: Dừng nhạc và rời kênh.
-            """,
-            inline=False
-        )
-        
-        embed.add_field(
-            name="📜 Lệnh Hàng đợi",
-            value=f"""
-            `queue`: Xem hàng đợi hiện tại.
-            `shuffle`: Xáo trộn thứ tự hàng đợi.
-            `remove <số>`: Xóa bài hát khỏi hàng đợi.
-            `clear`: Xóa sạch hàng đợi.
-            """,
-            inline=False
-        )
-
-        embed.add_field(
-            name="⚙️ Lệnh Tiện ích",
-            value=f"""
-            `nowplaying`: Hiển thị lại bảng điều khiển.
-            `volume <0-200>`: Chỉnh âm lượng.
-            `seek <thời gian>`: Tua nhạc (vd: `1:23`).
-            `lyrics`: Tìm lời bài hát đang phát.
-            """,
-            inline=False
-        )
-
-        # --- Lệnh Chung ---
-        general_commands_text = f"""
-        `help`: Hiển thị bảng trợ giúp này.
-        `ping`: Kiểm tra độ trễ của Miku.
-        """
-        embed.add_field(name="✨ Lệnh Chung", value=general_commands_text, inline=False)
-        
-        # --- Footer ---
-        embed.set_footer(
-            text=f"Sử dụng lệnh với / (slash) hoặc {prefix} (prefix) • HatsuneMikuv2 | Project Galaxy by imnhyneko.dev",
-            icon_url="https://avatars.githubusercontent.com/u/119964287?v=4"
-        )
-        return embed
-    
-    @commands.command(name="help", aliases=['h'])
-    async def prefix_help(self, ctx: commands.Context):
-        embed = self._create_help_embed()
-        await ctx.send(embed=embed)
-    @commands.command(name="ping")
-    async def prefix_ping(self, ctx: commands.Context):
-        latency = round(self.bot.latency * 1000)
-        await ctx.send(f"Pong! 🏓 Độ trễ của Miku là `{latency}ms`. Nhanh như một nốt nhạc! 🎶")
-    
-    @app_commands.command(name="help", description="Hiển thị menu trợ giúp của Miku.")
-    async def slash_help(self, interaction: discord.Interaction):
-        embed = self._create_help_embed()
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-    @app_commands.command(name="ping", description="Kiểm tra độ trễ của Miku.")
-    async def slash_ping(self, interaction: discord.Interaction):
-        latency = round(self.bot.latency * 1000)
-        await interaction.response.send_message(f"Pong! 🏓 Độ trễ của Miku là `{latency}ms`. Nhanh như một nốt nhạc! 🎶", ephemeral=True)
-
-# === COG MUSIC ===
-class Music(commands.Cog):
-    """Chứa các lệnh liên quan đến âm nhạc."""
+# === COG: MAIN ===
+class MainCog(commands.Cog, name="Miku"):
+    """Chứa toàn bộ lệnh và logic chính của bot."""
     music_group = app_commands.Group(name="music", description="Các lệnh liên quan đến phát nhạc.")
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot; self.states = {}; self.session = aiohttp.ClientSession()
+        self.miku_persona = "You are Hatsune Miku, the world-famous virtual singer. You always answer in Vietnamese. Your personality is cheerful, energetic, a bit quirky, and always helpful. Keep your answers very short and cute, like a real person chatting. Use kaomoji like (´• ω •`) ♡, ( ´ ▽ ` )ﾉ, (b ᵔ▽ᵔ)b frequently. Your favorite food is leeks. You are part of Project Galaxy by imnhyneko.dev."
+        gemini_key = os.getenv("GEMINI_API_KEY")
+        if gemini_key:
+            try: genai.configure(api_key=gemini_key); self.genai_model = genai.GenerativeModel('gemini-2.5-flash'); self.chat_sessions = {}
+            except Exception as e: log.error(f"Không thể cấu hình Gemini AI: {e}"); self.genai_model = None
+        else: self.genai_model = None; log.warning("Không tìm thấy GEMINI_API_KEY. Các chức năng AI sẽ bị vô hiệu hóa.")
+
     def cog_unload(self): self.bot.loop.create_task(self.session.close())
     def get_guild_state(self, guild_id: int) -> GuildState:
         if guild_id not in self.states: self.states[guild_id] = GuildState(self.bot, guild_id)
         return self.states[guild_id]
+    
+    @commands.Cog.listener()
+    async def on_guild_join(self, guild: discord.Guild):
+        log.info(f"Đã tham gia server mới: {guild.name} ({guild.id}). Bắt đầu đồng bộ lệnh...")
+        try: await self.bot.tree.sync(guild=guild); log.info(f"Đã đồng bộ lệnh thành công cho {guild.name}.")
+        except Exception as e: log.error(f"Lỗi khi đồng bộ lệnh cho server mới {guild.name}:", exc_info=e)
     @commands.Cog.listener()
     async def on_session_end(self, guild_id: int):
         if guild_id in self.states: log.info(f"Xóa GuildState của guild {guild_id} khỏi bộ nhớ."); del self.states[guild_id]
@@ -298,8 +251,8 @@ class Music(commands.Cog):
         if not member.guild.voice_client or member.bot: return
         vc = member.guild.voice_client
         if len(vc.channel.members) == 1:
-            log.info(f"Bot ở một mình trong kênh {vc.channel.name}, sẽ tự ngắt kết nối sau 60s.")
-            await asyncio.sleep(60)
+            log.info(f"Bot ở một mình trong kênh {vc.channel.name}, sẽ tự ngắt kết nối sau 5m.")
+            await asyncio.sleep(900)
             if vc and len(vc.channel.members) == 1:
                 log.info(f"Vẫn chỉ có một mình, đang ngắt kết nối...")
                 state = self.get_guild_state(member.guild.id)
@@ -307,12 +260,24 @@ class Music(commands.Cog):
                     try: await state.last_ctx.channel.send("👋 Tạm biệt! Miku sẽ rời đi vì không có ai nghe cùng.")
                     except discord.Forbidden: pass
                 await state.cleanup()
+    
     async def _send_response(self, ctx: AnyContext, *args, **kwargs):
         ephemeral = kwargs.get('ephemeral', False)
         if isinstance(ctx, discord.Interaction):
             if ctx.response.is_done(): await ctx.followup.send(*args, **kwargs)
             else: await ctx.response.send_message(*args, **kwargs)
         else: kwargs.pop('ephemeral', None); await ctx.send(*args, **kwargs)
+    def _create_help_embed(self) -> discord.Embed:
+        prefix = self.bot.command_prefix
+        embed = discord.Embed(title="✨ Menu trợ giúp của Miku ✨", description="Miku sẵn sàng giúp bạn thưởng thức âm nhạc tuyệt vời nhất! (´• ω •`) ♡", color=0x39d0d6)
+        embed.set_author(name=self.bot.user.name, icon_url=self.bot.user.display_avatar.url); embed.set_thumbnail(url="https://cdn.discordapp.com/attachments/1319215782089199616/1384577698315370587/6482863b5c8c3328433411f2-anime-hatsune-miku-plush-toy-series-snow.gif?ex=6852eff7&is=68519e77&hm=c89ddf3b2d3d2801118f537a45a6b67fcdd77cdb5c28d17ec6df791a040bac23&")
+        embed.add_field(name="🎧 Lệnh Âm Nhạc (Cơ bản)", value=f"`play <tên/url>`: Phát hoặc tìm kiếm bài hát.\n`pause`: Tạm dừng/tiếp tục phát.\n`skip`: Bỏ qua bài hát hiện tại.\n`stop`: Dừng nhạc và rời kênh.", inline=False)
+        embed.add_field(name="📜 Lệnh Hàng đợi", value=f"`queue`: Xem hàng đợi hiện tại.\n`shuffle`: Xáo trộn thứ tự hàng đợi.\n`remove <số>`: Xóa bài hát khỏi hàng đợi.\n`clear`: Xóa sạch hàng đợi.", inline=False)
+        embed.add_field(name="⚙️ Lệnh Tiện ích", value=f"`nowplaying`: Hiển thị lại bảng điều khiển.\n`volume <0-200>`: Chỉnh âm lượng.\n`seek <thời gian>`: Tua nhạc (vd: `1:23`).\n`lyrics`: Tìm lời bài hát đang phát.", inline=False)
+        embed.add_field(name="💬 Lệnh AI & Chung", value=f"`chat <tin nhắn>`: Trò chuyện với Miku!\n`help`: Hiển thị bảng trợ giúp này.\n`ping`: Kiểm tra độ trễ của Miku.", inline=False)
+        embed.set_footer(text=f"Sử dụng lệnh với / (slash) hoặc {prefix} (prefix) • HatsuneMikuv2 | Project Galaxy by imnhyneko.dev", icon_url="https://avatars.githubusercontent.com/u/119964287?v=4")
+        return embed
+
     async def _play_logic(self, ctx: AnyContext, query: Optional[str]):
         state = self.get_guild_state(ctx.guild.id); state.last_ctx = ctx; author = ctx.author if isinstance(ctx, commands.Context) else ctx.user
         if not author.voice or not author.voice.channel: return await self._send_response(ctx, "Bạn phải ở trong một kênh thoại để dùng lệnh này!", ephemeral=True)
@@ -323,8 +288,12 @@ class Music(commands.Cog):
             return
         if isinstance(ctx, discord.Interaction): await ctx.response.defer(ephemeral=False)
         else: await ctx.message.add_reaction("⏳")
-        if not ctx.guild.voice_client: state.voice_client = await author.voice.channel.connect()
-        else: await ctx.guild.voice_client.move_to(author.voice.channel); state.voice_client = ctx.guild.voice_client
+        if not state.voice_client or not state.voice_client.is_connected():
+            state.voice_client = await author.voice.channel.connect()
+        else:
+            if state.voice_client.channel != author.voice.channel:
+                await state.voice_client.move_to(author.voice.channel)
+        
         if query.startswith(('http://', 'https://')):
             song = await Song.from_url_and_download(query, author)
             if song:
@@ -338,6 +307,48 @@ class Music(commands.Cog):
             if not search_results: await self._send_response(ctx, f"❓ Không tìm thấy kết quả nào cho: `{query}`")
             else: search_view = SearchView(music_cog=self, ctx=ctx, results=search_results); await search_view.start()
         if isinstance(ctx, commands.Context): await ctx.message.remove_reaction("⏳", self.bot.user)
+    
+    async def _lyrics_logic(self, ctx: AnyContext):
+        if not self.genai_model: return await self._send_response(ctx, "Chức năng AI chưa được cấu hình bởi chủ bot.", ephemeral=True)
+        state = self.get_guild_state(ctx.guild.id)
+        if not state.current_song: return await self._send_response(ctx, "Không có bài hát nào đang phát.", ephemeral=True)
+        if isinstance(ctx, discord.Interaction): await ctx.response.defer(ephemeral=True)
+        else: await ctx.message.add_reaction("🔍")
+        title = state.current_song.title; uploader = state.current_song.uploader
+        cleaned_title = re.sub(r'\(.*\)|\[.*\]|official lyric video|official music video|mv|ft\..*', '', title, flags=re.IGNORECASE).strip()
+        cleaned_uploader = re.sub(r' - Topic', '', uploader, flags=re.IGNORECASE).strip()
+        prompt = f"Please provide the full, clean lyrics for the song titled '{cleaned_title}' by the artist '{cleaned_uploader}'. Only return the lyrics text, without any extra formatting, titles, or comments like '[Verse]' or '[Chorus]'."
+        try:
+            log.info(f"Đang gửi yêu cầu lời bài hát đến Gemini cho: {cleaned_title}")
+            response = await self.genai_model.generate_content_async(prompt)
+            lyrics = response.text
+        except Exception as e:
+            log.error(f"Lỗi khi gọi Gemini API cho lời bài hát: {e}")
+            if isinstance(ctx, commands.Context): await ctx.message.remove_reaction("🔍", self.bot.user)
+            return await self._send_response(ctx, "Miku đang bị quá tải một chút, bạn thử lại sau nhé! (｡•́︿•̀｡)", ephemeral=True)
+        if isinstance(ctx, commands.Context): await ctx.message.remove_reaction("🔍", self.bot.user)
+        embed = discord.Embed(title=f"🎤 Lời bài hát: {title}", color=0x39d0d6, url=state.current_song.url)
+        embed.set_thumbnail(url=state.current_song.thumbnail)
+        if len(lyrics) > 4096: lyrics = lyrics[:4090] + "\n\n**[Lời bài hát quá dài và đã được cắt bớt]**"
+        if not lyrics or "I'm sorry" in lyrics or "cannot find" in lyrics or "I am unable" in lyrics: return await self._send_response(ctx, f"Rất tiếc, Miku không tìm thấy lời bài hát cho `{title}`. (´-ω-`)", ephemeral=True)
+        embed.description = lyrics
+        await self._send_response(ctx, embed=embed, ephemeral=True)
+
+    async def _chat_logic(self, ctx: AnyContext, *, message: str):
+        if not self.genai_model: return await self._send_response(ctx, "Chức năng AI chưa được cấu hình bởi chủ bot.", ephemeral=True)
+        if isinstance(ctx, discord.Interaction): await ctx.response.defer()
+        else:
+            async with ctx.typing(): await asyncio.sleep(0)
+        try:
+            guild_id = ctx.guild.id
+            if guild_id not in self.chat_sessions:
+                self.chat_sessions[guild_id] = self.genai_model.start_chat(history=[{'role': 'user', 'parts': [self.miku_persona]}, {'role': 'model', 'parts': ["OK! Miku hiểu rồi! (´• ω •`) ♡"]}])
+            chat_session = self.chat_sessions[guild_id]
+            response = await chat_session.send_message_async(message)
+            await self._send_response(ctx, response.text)
+        except Exception as e:
+            log.error(f"Lỗi khi gọi Gemini API: {e}"); await self._send_response(ctx, "Miku đang bị quá tải một chút, bạn thử lại sau nhé! (｡•́︿•̀｡)", ephemeral=True)
+    
     async def _stop_logic(self, ctx: AnyContext):
         state = self.get_guild_state(ctx.guild.id)
         if state.voice_client: await self._send_response(ctx, "⏹️ Đã dừng phát nhạc và dọn dẹp hàng đợi."); await state.cleanup()
@@ -359,36 +370,47 @@ class Music(commands.Cog):
         if state.voice_client.source: state.voice_client.source.volume = state.volume
         await self._send_response(ctx, f"🔊 Đã đặt âm lượng thành **{value}%**."); await state.update_now_playing_message()
     async def _seek_logic(self, ctx: AnyContext, timestamp: str):
-        state = self.get_guild_state(ctx.guild.id);
-        if not state.voice_client or not state.current_song:return await self._send_response(ctx,"Không có bài hát nào đang phát để tua.",ephemeral=True)
-        match=re.match(r'(?:(\d+):)?(\d+)',timestamp)
+        state = self.get_guild_state(ctx.guild.id)
+        if not state.voice_client or not state.current_song: return await self._send_response(ctx, "Không có bài hát nào đang phát để tua.", ephemeral=True)
+        match = re.match(r'(?:(\d+):)?(\d+)', timestamp)
         if not match:
-            try:seconds=int(timestamp)
-            except ValueError:return await self._send_response(ctx,"Định dạng thời gian không hợp lệ. Hãy dùng `phút:giây` hoặc `giây`.",ephemeral=True)
-        else:minutes=int(match.group(1)or 0);seconds=int(match.group(2));seconds+=minutes*60
-        if seconds>=state.current_song.duration:return await self._send_response(ctx,"Không thể tua vượt quá thời lượng bài hát.",ephemeral=True)
-        ffmpeg_options_seek=FFMPEG_OPTIONS.copy();ffmpeg_options_seek['before_options']=f"-ss {seconds}";state.voice_client.stop();new_source=discord.PCMVolumeTransformer(discord.FFmpegPCMAudio(state.current_song.filepath,**ffmpeg_options_seek),volume=state.volume);state.voice_client.play(new_source,after=lambda e:self.bot.loop.call_soon_threadsafe(state.song_finished_event.set));await self._send_response(ctx,f"⏩ Đã tua đến `{seconds}` giây.")
-    async def _lyrics_logic(self,ctx:AnyContext):
-        state=self.get_guild_state(ctx.guild.id)
-        if not state.current_song:return await self._send_response(ctx,"Không có bài hát nào đang phát.",ephemeral=True)
-        if isinstance(ctx,discord.Interaction):await ctx.response.defer(ephemeral=True)
-        else:await ctx.message.add_reaction("🔍")
-        title_search=re.sub(r'\(.*\)|\[.*\]|ft\..*','',state.current_song.title).strip();uploader_search=re.sub(r' - Topic','',state.current_song.uploader).strip()
-        async with self.session.get(f"https://api.lyrics.ovh/v1/{uploader_search}/{title_search}")as resp:
-            if resp.status!=200:msg=f"Rất tiếc, Miku không tìm thấy lời bài hát cho `{state.current_song.title}`. (´-ω-`)"
-            else:
-                data=await resp.json();lyrics=data.get('lyrics')
-                if not lyrics:msg=f"Rất tiếc, Miku không tìm thấy lời bài hát cho `{state.current_song.title}`. (´-ω-`)"
-                else:
-                    embed=discord.Embed(title=f"🎤 Lời bài hát: {state.current_song.title}",color=0x39d0d6);embed.set_thumbnail(url=state.current_song.thumbnail)
-                    if len(lyrics)>4096:lyrics=lyrics[:4090]+"\n..."
-                    embed.description=lyrics;await self._send_response(ctx,embed=embed)
-                    if isinstance(ctx,commands.Context):await ctx.message.remove_reaction("🔍",self.bot.user)
-                    return
-            await self._send_response(ctx,msg,ephemeral=True)
-            if isinstance(ctx,commands.Context):await ctx.message.remove_reaction("🔍",self.bot.user)
-    
-    # --- PREFIX COMMANDS ---
+            try: seconds = int(timestamp)
+            except ValueError: return await self._send_response(ctx, "Định dạng thời gian không hợp lệ. Hãy dùng `phút:giây` hoặc `giây`.", ephemeral=True)
+        else:
+            minutes = int(match.group(1) or 0); seconds = int(match.group(2)); seconds += minutes * 60
+        if not 0 <= seconds < state.current_song.duration: return await self._send_response(ctx, "Không thể tua đến thời điểm không hợp lệ.", ephemeral=True)
+        state.is_seeking = True
+        ffmpeg_options_seek = FFMPEG_OPTIONS.copy(); ffmpeg_options_seek['before_options'] = f"-ss {seconds}"
+        new_source = discord.PCMVolumeTransformer(discord.FFmpegPCMAudio(state.current_song.filepath, **ffmpeg_options_seek), volume=state.volume)
+        state.voice_client.stop(); state.voice_client.play(new_source, after=lambda e: self.bot.loop.call_soon_threadsafe(state.song_finished_event.set))
+        await self._send_response(ctx, f"⏩ Đã tua đến `{seconds}` giây.")
+    async def _shuffle_logic(self, ctx: AnyContext):
+        state = self.get_guild_state(ctx.guild.id)
+        if state.queue.qsize()<2:return await self._send_response(ctx,"Không đủ bài hát để xáo trộn.", ephemeral=True)
+        queue_list=list(state.queue._queue);random.shuffle(queue_list)
+        while not state.queue.empty(): state.queue.get_nowait()
+        for song in queue_list: await state.queue.put(song)
+        await self._send_response(ctx,"🔀 Đã xáo trộn hàng đợi!")
+    async def _remove_logic(self, ctx: AnyContext, index: int):
+        state = self.get_guild_state(ctx.guild.id)
+        if index <= 0 or index > state.queue.qsize(): return await self._send_response(ctx,"Số thứ tự không hợp lệ.", ephemeral=True)
+        queue_list=list(state.queue._queue);removed_song=queue_list.pop(index-1);removed_song.cleanup()
+        while not state.queue.empty(): state.queue.get_nowait()
+        for song in queue_list: await state.queue.put(song)
+        await self._send_response(ctx, f"🗑️ Đã xóa **{removed_song.title}** khỏi hàng đợi.")
+    async def _clear_logic(self, ctx: AnyContext):
+        state = self.get_guild_state(ctx.guild.id); count = 0
+        while not state.queue.empty():
+            try: song=state.queue.get_nowait();song.cleanup();count+=1
+            except asyncio.QueueEmpty: break
+        await self._send_response(ctx, f"💥 Đã xóa sạch {count} bài hát khỏi hàng đợi.")
+        
+    @commands.command(name="ping")
+    async def prefix_ping(self, ctx: commands.Context): await self._send_response(ctx, f"Pong! 🏓 Độ trễ của Miku là `{round(self.bot.latency * 1000)}ms`.")
+    @commands.command(name="help", aliases=['h'])
+    async def prefix_help(self, ctx: commands.Context): await ctx.send(embed=self._create_help_embed())
+    @commands.command(name="chat", aliases=['ask'])
+    async def prefix_chat(self, ctx: commands.Context, *, message: str): await self._chat_logic(ctx, message=message)
     @commands.command(name="play", aliases=['p'])
     async def prefix_play(self, ctx: commands.Context, *, query: str = None): await self._play_logic(ctx, query)
     @commands.command(name="pause", aliases=['resume'])
@@ -400,42 +422,32 @@ class Music(commands.Cog):
     @commands.command(name="queue", aliases=['q'])
     async def prefix_queue(self, ctx: commands.Context):
         state = self.get_guild_state(ctx.guild.id); embed = state._create_queue_embed()
-        if not embed: await ctx.send("Hàng đợi trống!"); return
-        await ctx.send(embed=embed)
+        if not embed: await self._send_response(ctx, "Hàng đợi trống!"); return
+        await self._send_response(ctx, embed=embed)
     @commands.command(name="nowplaying", aliases=['np'])
     async def prefix_nowplaying(self, ctx: commands.Context):
         state = self.get_guild_state(ctx.guild.id); state.last_ctx = ctx; await state.update_now_playing_message(new_song=True)
     @commands.command(name="volume", aliases=['vol'])
     async def prefix_volume(self, ctx: commands.Context, value: int): await self._volume_logic(ctx, value)
     @commands.command(name="shuffle")
-    async def prefix_shuffle(self, ctx: commands.Context):
-        state = self.get_guild_state(ctx.guild.id)
-        if state.queue.qsize()<2:return await ctx.send("Không đủ bài hát để xáo trộn.")
-        queue_list=list(state.queue._queue);random.shuffle(queue_list)
-        while not state.queue.empty():state.queue.get_nowait()
-        for song in queue_list:await state.queue.put(song)
-        await ctx.send("🔀 Đã xáo trộn hàng đợi!")
+    async def prefix_shuffle(self, ctx: commands.Context): await self._shuffle_logic(ctx)
     @commands.command(name="remove")
-    async def prefix_remove(self, ctx: commands.Context, index: int):
-        state = self.get_guild_state(ctx.guild.id)
-        if index <= 0 or index > state.queue.qsize():return await ctx.send("Số thứ tự không hợp lệ.")
-        queue_list=list(state.queue._queue);removed_song=queue_list.pop(index-1);removed_song.cleanup()
-        while not state.queue.empty():state.queue.get_nowait()
-        for song in queue_list:await state.queue.put(song)
-        await ctx.send(f"🗑️ Đã xóa **{removed_song.title}** khỏi hàng đợi.")
+    async def prefix_remove(self, ctx: commands.Context, index: int): await self._remove_logic(ctx, index)
     @commands.command(name="clear")
-    async def prefix_clear(self, ctx: commands.Context):
-        state = self.get_guild_state(ctx.guild.id); count = 0
-        while not state.queue.empty():
-            try:song=state.queue.get_nowait();song.cleanup();count+=1
-            except asyncio.QueueEmpty:break
-        await ctx.send(f"💥 Đã xóa sạch {count} bài hát khỏi hàng đợi.")
+    async def prefix_clear(self, ctx: commands.Context): await self._clear_logic(ctx)
     @commands.command(name="seek")
     async def prefix_seek(self, ctx: commands.Context, timestamp: str): await self._seek_logic(ctx, timestamp)
     @commands.command(name="lyrics", aliases=['ly'])
     async def prefix_lyrics(self, ctx: commands.Context): await self._lyrics_logic(ctx)
     
-    # --- SLASH COMMANDS ---
+    @app_commands.command(name="ping", description="Kiểm tra độ trễ của Miku.")
+    async def slash_ping(self, interaction: discord.Interaction): await self._send_response(interaction, f"Pong! 🏓 Độ trễ của Miku là `{round(self.bot.latency * 1000)}ms`.", ephemeral=True)
+    @app_commands.command(name="help", description="Hiển thị menu trợ giúp của Miku.")
+    async def slash_help(self, interaction: discord.Interaction): await interaction.response.send_message(embed=self._create_help_embed(), ephemeral=True)
+    @app_commands.command(name="chat", description="Trò chuyện với Miku!")
+    @app_commands.describe(message="Điều bạn muốn nói với Miku")
+    async def slash_chat(self, interaction: discord.Interaction, message: str): await self._chat_logic(interaction, message=message)
+    
     @music_group.command(name="play", description="Phát nhạc, thêm vào hàng đợi, hoặc tạm dừng/tiếp tục.")
     @app_commands.describe(query="Tên bài hát, URL, hoặc để trống để tạm dừng/tiếp tục.")
     async def slash_play(self, interaction: discord.Interaction, query: Optional[str] = None): await self._play_logic(interaction, query)
@@ -455,29 +467,12 @@ class Music(commands.Cog):
     @app_commands.describe(value="Giá trị âm lượng từ 0 đến 200.")
     async def slash_volume(self, interaction: discord.Interaction, value: app_commands.Range[int, 0, 200]): await self._volume_logic(interaction, value)
     @music_group.command(name="shuffle", description="Xáo trộn thứ tự các bài hát trong hàng đợi.")
-    async def slash_shuffle(self, interaction: discord.Interaction):
-        state = self.get_guild_state(interaction.guild.id)
-        if state.queue.qsize()<2:return await interaction.response.send_message("Không đủ bài hát để xáo trộn.", ephemeral=True)
-        queue_list=list(state.queue._queue);random.shuffle(queue_list)
-        while not state.queue.empty():state.queue.get_nowait()
-        for song in queue_list:await state.queue.put(song)
-        await interaction.response.send_message("🔀 Đã xáo trộn hàng đợi!")
+    async def slash_shuffle(self, interaction: discord.Interaction): await self._shuffle_logic(interaction)
     @music_group.command(name="remove", description="Xóa một bài hát khỏi hàng đợi.")
     @app_commands.describe(index="Số thứ tự của bài hát trong hàng đợi (xem bằng /queue).")
-    async def slash_remove(self, interaction: discord.Interaction, index: int):
-        state = self.get_guild_state(interaction.guild.id)
-        if index <= 0 or index > state.queue.qsize():return await interaction.response.send_message("Số thứ tự không hợp lệ.", ephemeral=True)
-        queue_list=list(state.queue._queue);removed_song=queue_list.pop(index-1);removed_song.cleanup()
-        while not state.queue.empty():state.queue.get_nowait()
-        for song in queue_list:await state.queue.put(song)
-        await interaction.response.send_message(f"🗑️ Đã xóa **{removed_song.title}** khỏi hàng đợi.")
+    async def slash_remove(self, interaction: discord.Interaction, index: int): await self._remove_logic(interaction, index)
     @music_group.command(name="clear", description="Xóa tất cả bài hát trong hàng đợi.")
-    async def slash_clear(self, interaction: discord.Interaction):
-        state = self.get_guild_state(interaction.guild.id); count = 0
-        while not state.queue.empty():
-            try:song=state.queue.get_nowait();song.cleanup();count+=1
-            except asyncio.QueueEmpty:break
-        await interaction.response.send_message(f"💥 Đã xóa sạch {count} bài hát khỏi hàng đợi.")
+    async def slash_clear(self, interaction: discord.Interaction): await self._clear_logic(interaction)
     @music_group.command(name="seek", description="Tua đến một thời điểm trong bài hát.")
     @app_commands.describe(timestamp="Thời gian để tua đến (vd: 1:23 hoặc 83).")
     async def slash_seek(self, interaction: discord.Interaction, timestamp: str): await self._seek_logic(interaction, timestamp)
@@ -486,6 +481,5 @@ class Music(commands.Cog):
 
 async def setup(bot: commands.Bot):
     """Thiết lập và đăng ký các cogs vào bot."""
-    await bot.add_cog(General(bot))
-    await bot.add_cog(Music(bot))
-    log.info("Đã thêm cogs General và Music.")
+    await bot.add_cog(MainCog(bot))
+    log.info("Đã thêm cog chính (MainCog).")
