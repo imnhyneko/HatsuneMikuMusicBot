@@ -6,7 +6,7 @@
   </p>
   
   <p>
-    <a href="https://github.com/imnhyneko/HatsuneMikuMusicBot/releases"><img src="https://img.shields.io/github/v/release/imnhyneko/HatsuneMikuMusicBot?style=for-the-badge&color=39d0d6" alt="Latest Release"></a>
+    <a href="https://github.com/imnhyneko/HatsuneMikuMusicBot/releases"><img src="https://img.shields.io/github/v/release/imnhyneko/HatsuneMikuMusicBot?include_prereleases&label=version&style=for-the-badge&color=39d0d6" alt="Latest Release"></a>
     <a href="https://opensource.org/licenses/Apache-2.0"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg?style=for-the-badge&color=39d0d6" alt="License"></a>
     <a href="https://github.com/imnhyneko/HatsuneMikuMusicBot/stargazers"><img src="https://img.shields.io/github/stars/imnhyneko/HatsuneMikuMusicBot?style=for-the-badge&color=39d0d6" alt="GitHub Stars"></a>
   </p>
@@ -16,19 +16,18 @@
 
 ## 🎤 About Miku
 
-**HatsuneMiku** is not just another music bot. It's a complete rewrite of the original, infused with the power of **Google's Gemini AI** to create a smarter, more reliable, and more interactive musical companion for your Discord server.
+**HatsuneMiku v2** is not just another music bot. It's a complete rewrite of the original, infused with the power of **Google's Gemini AI** to create a smarter, more reliable, and more interactive musical companion for your Discord server. Enjoy high-quality audio, a seamless user experience, and even chat with Miku herself!
 
 This project, codenamed **Project Galaxy**, aims to take your server's music experience to the stars.
 
 ## ✨ Key Features
 
 - **🚀 Dual Command System**: Supports both modern **Slash Commands** (`/play`) and traditional **Prefix Commands** (`miku!play`).
-- **🧠 Gemini-Powered Lyrics**: Utilizes Google's Gemini AI to find accurate, clean lyrics for any song, overcoming messy YouTube titles.
 - **💬 AI Chatbot Persona**: Chat directly with Miku! Powered by Gemini, she has a unique, cheerful personality and remembers your conversation history within each server.
 - **🎶 Comprehensive Music Controls**: All the commands you need: `play`, `pause`, `skip`, `stop`, `queue`, `shuffle`, `seek`, `volume`, and more.
 - **🔎 Smart Search & Select**: Don't have a link? Just search for a song, and Miku will present you with a list of results to choose from.
 - **🎧 High-Quality Audio**: Uses `yt-dlp` and `FFmpeg` to deliver the best possible audio quality from YouTube.
-- **😴 Auto-Leave & Cleanup**: Automatically disconnects and cleans up resources when left alone or when the queue ends, ensuring efficiency.
+- **😴 Auto-Leave & Cleanup**: Automatically disconnects when left alone in a voice channel, ensuring efficiency.
 - **🔁 Advanced Loop Modes**: Supports looping a single track or the entire queue.
 
 ---
@@ -64,13 +63,7 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 3. Install FFmpeg
-You need FFmpeg to process audio.
-- **Windows**: Download from [ffmpeg.org](https://ffmpeg.org/download.html), extract it, and add the `bin` folder to your system's `PATH`.
-- **macOS (via Homebrew)**: `brew install ffmpeg`
-- **Linux (Debian/Ubuntu)**: `sudo apt update && sudo apt install ffmpeg`
-
-### 4. Configure Environment Variables
+### 3. Configure Environment Variables
 The bot requires API keys to function. Create a `.env` file in the root directory and add the following:
 
 ```ini
@@ -84,7 +77,7 @@ GEMINI_API_KEY="YOUR_GEMINI_API_KEY_HERE"
 - **Discord Token**: Get it from the [Discord Developer Portal](https://discord.com/developers/applications) under your application's "Bot" tab.
 - **Gemini API Key**: Get it from [Google AI Studio](https://aistudio.google.com/). The free tier is very generous and sufficient for most use cases.
 
-### 5. Run the Bot
+### 4. Run the Bot
 Once everything is configured, start Miku with:
 ```bash
 python main.py
@@ -108,7 +101,6 @@ Miku understands both `/` (slash) and `miku!` (prefix) commands.
 | `nowplaying` | Re-displays the music control panel. |
 | `volume <0-200>`| Adjusts the bot's volume. |
 | `seek <timestamp>`| Seeks to a specific time (e.g., `1:23`). |
-| `lyrics` | Fetches lyrics for the current song using AI. |
 | `remove <number>` | Removes a specific song from the queue. |
 | `clear` | Clears the entire queue. |
 
