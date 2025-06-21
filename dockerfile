@@ -1,9 +1,11 @@
-FROM ubuntu/python:3.12-24.04
+FROM python:3.14-rc-alpine
 
 WORKDIR /app
 
+RUN apk add --no-cache build-base
+
 COPY requirements.txt requirements.txt
-RUN python3 -m pip install -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
