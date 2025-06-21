@@ -362,16 +362,13 @@ class GuildState:
         log.info(f"Bắt đầu cleanup cho guild {self.guild_id}")
         self.bot.dispatch("session_end", self.guild_id)
 
-        if self.player_task:
-            self.player_task.cancel()
-
         if self.current_song:
             self.current_song.cleanup()
             self.current_song = None
 
         try:
-            await self.update_voice_channel_status()
             await self.update_now_playing_message()
+            await self.update_voice_channel_status()
         except Exception as e:
             log.warning(f"Error occured while updating playing message and status: {e}")
 
@@ -392,3 +389,7 @@ class GuildState:
                 await self.now_playing_message.delete()
             except discord.NotFound:
                 pass
+
+        # Finally, we can commit sudoku.
+        if self.player_task:
+            self.player_task.cancel()
