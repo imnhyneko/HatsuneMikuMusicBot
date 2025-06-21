@@ -105,10 +105,10 @@ class GuildState:
                     f"Guild {self.guild_id}: Lấy bài hát '{self.current_song.title}' từ hàng đợi."
                 )
 
-            # Phát bài hát mới
-            try:
                 await self.update_now_playing_message(new_song=True)
 
+            # Phát bài hát mới
+            try:
                 self.start_stream()
                 self.restarting = False
 
