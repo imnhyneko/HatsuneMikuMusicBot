@@ -153,6 +153,7 @@ class MusicCog(commands.Cog, name="Miku"):
             return await self._send_response(
                 ctx, "Bạn phải ở trong một kênh thoại để dùng lệnh này!", ephemeral=True
             )
+
         if not query:
             if state.voice_client and state.voice_client.is_paused():
                 state.voice_client.resume()
@@ -167,16 +168,13 @@ class MusicCog(commands.Cog, name="Miku"):
                     ctx, "Không có nhạc nào đang phát hoặc tạm dừng.", ephemeral=True
                 )
             return
-        
+
         if isinstance(ctx, discord.Interaction):
             await ctx.response.defer(ephemeral=False)
         else:
             await ctx.message.add_reaction("⏳")
-        if not state.voice_client or not state.voice_client.is_connected():
-            state.voice_client = await author.voice.channel.connect()
-        else:
-            if state.voice_client.channel != author.voice.channel:
-                await state.voice_client.move_to(author.voice.channel)
+
+        await state.connect_voice(author.voice.channel)
 
         if query.startswith(("http://", "https://")):
             song = await Song.from_url_and_download(query, author)

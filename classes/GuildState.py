@@ -9,6 +9,7 @@ from enums import LoopMode
 
 log = logging.getLogger(__name__)
 AnyContext = Union[commands.Context, discord.Interaction]
+VocalGuildChannel = Union[discord.VoiceChannel, discord.StageChannel]
 
 class GuildState:
     """Quản lý trạng thái của từng server."""
@@ -18,6 +19,7 @@ class GuildState:
         self.guild_id = guild_id
         self.queue = asyncio.Queue[Song]()
         self.voice_client: discord.VoiceClient | None = None
+        self.voice_channel: discord.VoiceChannel | None = None
         self.now_playing_message: discord.Message | None = None
         self.current_song: Song | None = None
         self.loop_mode = LoopMode.OFF
@@ -26,6 +28,18 @@ class GuildState:
         self.song_finished_event = asyncio.Event()
         self.volume = 0.5
         self.restarting = False
+
+    async def connect_voice(self, channel: VocalGuildChannel):
+        if not self.voice_client or not self.voice_client.is_connected():
+            log.info(f"Connecting to voice channel #{channel.id}")
+            self.voice_client = await channel.connect()
+            self.voice_channel = channel
+            return
+
+        if self.voice_client.channel != channel:
+            log.info(f"Moving to voice channel #{channel.id}")
+            await self.voice_client.move_to(channel)
+            self.voice_channel = channel
 
     async def add_song(self, song: Song):
         await self.queue.put(song)
@@ -355,8 +369,11 @@ class GuildState:
             self.current_song.cleanup()
             self.current_song = None
 
-        await self.update_voice_channel_status()
-        await self.update_now_playing_message()
+        try:
+            await self.update_voice_channel_status()
+            await self.update_now_playing_message()
+        except Exception as e:
+            log.warning(f"Error occured while updating playing message and status: {e}")
 
         if self.voice_client:
             await self.voice_client.disconnect(force=True)
