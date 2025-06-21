@@ -381,22 +381,6 @@ class MusicCog(commands.Cog, name="Miku"):
         state.current_song.start_time = seconds
         state.restart_current_song()
 
-        # state.is_seeking = True
-        # ffmpeg_options_seek = FFMPEG_OPTIONS.copy()
-        # ffmpeg_options_seek["before_options"] = f"-ss {seconds}"
-        # new_source = discord.PCMVolumeTransformer(
-        #     discord.FFmpegPCMAudio(state.current_song.filepath, **ffmpeg_options_seek),
-        #     volume=state.volume,
-        # )
-
-        # state.voice_client.stop()
-        # state.voice_client.play(
-        #     new_source,
-        #     after=lambda e: self.bot.loop.call_soon_threadsafe(
-        #         state.song_finished_event.set
-        #     ),
-        # )
-
         await self._send_response(ctx, f"⏩ Đã tua đến `{seconds}` giây.")
 
     async def _shuffle_logic(self, ctx: AnyContext):
