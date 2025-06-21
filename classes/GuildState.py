@@ -2,6 +2,7 @@ import discord
 import asyncio
 import logging
 from discord.ext import commands
+import discord.http
 from classes import Song
 from typing import Union
 from enums import LoopMode
@@ -36,6 +37,7 @@ class GuildState:
             self.player_task = asyncio.create_task(self.player_loop())
 
     def start_stream(self):
+        log.info("Starting audio stream...")
         if self.voice_client.is_playing():
             self.voice_client.stop()
 
@@ -105,6 +107,7 @@ class GuildState:
                     f"Guild {self.guild_id}: Lấy bài hát '{self.current_song.title}' từ hàng đợi."
                 )
 
+                await self.update_voice_channel_status()
                 await self.update_now_playing_message(new_song=True)
 
             # Phát bài hát mới
@@ -147,6 +150,15 @@ class GuildState:
                         pass
 
                 return await self.cleanup()
+
+    async def update_voice_channel_status(self):
+        guild = self.bot.get_guild(self.guild_id)
+        route = discord.http.Route("PUT", "/channels/{channel_id}/voice-status", channel_id=self.voice_client.channel.id)
+        payload = {
+            "status": f"🎵 {self.current_song.title}" if self.current_song else ""
+        }
+
+        await guild._state.http.request(route, json=payload)
 
     async def update_now_playing_message(self, new_song=False):
         if not self.last_ctx:
@@ -291,9 +303,11 @@ class GuildState:
             LoopMode.SONG: "🔁 Lặp lại bài hát hiện tại.",
             LoopMode.QUEUE: "🔁 Lặp lại toàn bộ hàng đợi.",
         }
+
         await interaction.response.send_message(
             mode_text[self.loop_mode], ephemeral=True
         )
+
         await self.update_now_playing_message()
 
     async def queue_callback(self, interaction: discord.Interaction):
@@ -340,6 +354,9 @@ class GuildState:
         if self.current_song:
             self.current_song.cleanup()
             self.current_song = None
+
+        await self.update_voice_channel_status()
+        await self.update_now_playing_message()
 
         if self.voice_client:
             await self.voice_client.disconnect(force=True)

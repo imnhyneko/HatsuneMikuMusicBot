@@ -52,6 +52,7 @@ class MusicCog(commands.Cog, name="Miku"):
     def get_guild_state(self, guild_id: int) -> GuildState:
         if guild_id not in self.states:
             self.states[guild_id] = GuildState(self.bot, guild_id)
+
         return self.states[guild_id]
 
     @commands.Cog.listener()
