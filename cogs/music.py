@@ -81,7 +81,9 @@ class MusicCog(commands.Cog, name="Miku"):
             log.info(
                 f"Bot ở một mình trong kênh {vc.channel.name}, sẽ tự ngắt kết nối sau 5m."
             )
+
             await asyncio.sleep(900)
+
             if vc and len(vc.channel.members) == 1:
                 log.info(f"Vẫn chỉ có một mình, đang ngắt kết nối...")
                 state = self.get_guild_state(member.guild.id)
@@ -92,6 +94,7 @@ class MusicCog(commands.Cog, name="Miku"):
                         )
                     except discord.Forbidden:
                         pass
+
                 await state.cleanup()
 
     async def _send_response(self, ctx: AnyContext, *args, **kwargs):
@@ -301,8 +304,8 @@ class MusicCog(commands.Cog, name="Miku"):
     async def _stop_logic(self, ctx: AnyContext):
         state = self.get_guild_state(ctx.guild.id)
         if state.voice_client:
-            await self._send_response(ctx, "⏹️ Đã dừng phát nhạc và dọn dẹp hàng đợi.")
             await state.cleanup()
+            await self._send_response(ctx, "⏹️ Đã dừng phát nhạc và dọn dẹp hàng đợi.")
         else:
             await self._send_response(
                 ctx, "Miku không ở trong kênh thoại nào cả.", ephemeral=True

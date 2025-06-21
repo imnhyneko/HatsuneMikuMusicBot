@@ -97,7 +97,7 @@ class GuildState:
                 # Lấy bài hát tiếp theo
                 try:
                     # Nếu không lặp lại bài hát, lấy bài mới từ hàng đợi
-                    if self.loop_mode != LoopMode.SONG:
+                    if self.loop_mode != LoopMode.SONG or not self.current_song:
                         self.current_song = await asyncio.wait_for(
                             self.queue.get(), timeout=300
                         )
@@ -134,9 +134,10 @@ class GuildState:
                 if self.restarting:
                     continue
 
-                log.info(
-                    f"Guild {self.guild_id}: Sự kiện kết thúc bài hát '{self.current_song.title}' được kích hoạt."
-                )
+                if self.current_song:
+                    log.info(
+                        f"Guild {self.guild_id}: Sự kiện kết thúc bài hát '{self.current_song.title}' được kích hoạt."
+                    )
             except Exception as e:
                 log.error(
                     f"Lỗi nghiêm trọng trong player loop của guild {self.guild_id}:",
@@ -183,6 +184,7 @@ class GuildState:
                 await self.now_playing_message.delete()
             except discord.NotFound:
                 pass
+
             self.now_playing_message = None
             return
 
@@ -362,6 +364,10 @@ class GuildState:
         log.info(f"Bắt đầu cleanup cho guild {self.guild_id}")
         self.bot.dispatch("session_end", self.guild_id)
 
+        if self.voice_client:
+            await self.voice_client.disconnect(force=True)
+            log.info(f"Đã ngắt kết nối voice client khỏi guild {self.guild_id}")
+
         if self.current_song:
             self.current_song.cleanup()
             self.current_song = None
@@ -372,10 +378,6 @@ class GuildState:
         except Exception as e:
             log.warning(f"Error occured while updating playing message and status: {e}")
 
-        if self.voice_client:
-            await self.voice_client.disconnect(force=True)
-            log.info(f"Đã ngắt kết nối voice client khỏi guild {self.guild_id}")
-
         # Cleanup cache files after voice client clean up to avoid cache file locking by ffmpeg
         while not self.queue.empty():
             try:
@@ -384,12 +386,6 @@ class GuildState:
             except asyncio.QueueEmpty:
                 break
 
-        if self.now_playing_message:
-            try:
-                await self.now_playing_message.delete()
-            except discord.NotFound:
-                pass
-
-        # Finally, we can commit sudoku.
+        # Finally, we can commit sudoku our task.
         if self.player_task:
             self.player_task.cancel()
