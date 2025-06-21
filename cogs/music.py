@@ -189,12 +189,12 @@ class MusicCog(commands.Cog, name="Miku"):
                 else:
                     await self._send_response(ctx, response_message)
 
-                if state.player_task is None or state.player_task.done():
-                    state.player_task = asyncio.create_task(state.player_loop())
+                state.start_player_loop()
             else:
                 await self._send_response(ctx, f"❌ Không thể tải về từ URL: `{query}`")
         else:
             search_results = await Song.search_only(query, author)
+
             if not search_results:
                 await self._send_response(
                     ctx, f"❓ Không tìm thấy kết quả nào cho: `{query}`"
@@ -204,6 +204,7 @@ class MusicCog(commands.Cog, name="Miku"):
                     music_cog=self, ctx=ctx, results=search_results
                 )
                 await search_view.start()
+
         if isinstance(ctx, commands.Context):
             await ctx.message.remove_reaction("⏳", self.bot.user)
 
@@ -376,6 +377,9 @@ class MusicCog(commands.Cog, name="Miku"):
             return await self._send_response(
                 ctx, "Không thể tua đến thời điểm không hợp lệ.", ephemeral=True
             )
+
+        state.current_song.start_time = seconds
+        state.restart_current_song()
 
         # state.is_seeking = True
         # ffmpeg_options_seek = FFMPEG_OPTIONS.copy()

@@ -1,2 +1,2 @@
 
-from .LoopMode import *
+from .LoopMode import LoopMode

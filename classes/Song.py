@@ -48,6 +48,7 @@ class Song:
         self.duration = data.get("duration")
         self.uploader = data.get("uploader")
         self.filepath = None
+        self.start_time = 0
         self.id = data.get("id")
         self.guild: GuildState = None
 
@@ -63,6 +64,17 @@ class Song:
             if h > 0
             else f"{int(m):02d}:{int(s):02d}"
         )
+    
+    def get_playback_options(self):
+        options = []
+
+        if (self.start_time > 0):
+            options.append(f"-ss {self.start_time}")
+
+        return {
+            "before_options": " ".join(options),
+            "options": "-vn"
+        }
 
     def cleanup(self):
         if self.filepath and os.path.exists(self.filepath):
@@ -81,8 +93,10 @@ class Song:
 
         try:
             data = await loop.run_in_executor(None, partial)
+
             if not data or "entries" not in data or not data["entries"]:
                 return []
+
             return [cls(entry, requester) for entry in data["entries"]]
         except Exception as e:
             log.error(f"Lỗi yt-dlp khi TÌM KIẾM '{query}': {e}", exc_info=True)

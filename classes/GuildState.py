@@ -9,8 +9,6 @@ from enums import LoopMode
 log = logging.getLogger(__name__)
 AnyContext = Union[commands.Context, discord.Interaction]
 
-FFMPEG_OPTIONS = {"before_options": "", "options": "-vn"}
-
 class GuildState:
     """Quản lý trạng thái của từng server."""
 
@@ -26,11 +24,43 @@ class GuildState:
         self.last_ctx: AnyContext | None = None
         self.song_finished_event = asyncio.Event()
         self.volume = 0.5
-        self.is_seeking = False
+        self.restarting = False
 
     async def add_song(self, song: Song):
         await self.queue.put(song)
+        song.guild = self
         log.info(f"Added song {song.title} to guild {self.guild_id}'s queue")
+
+    def start_player_loop(self):
+        if self.player_task is None or self.player_task.done():
+            self.player_task = asyncio.create_task(self.player_loop())
+
+    def start_stream(self):
+        if self.voice_client.is_playing():
+            self.voice_client.stop()
+
+        source = discord.PCMVolumeTransformer(
+            discord.FFmpegPCMAudio(
+                self.current_song.filepath,
+                **self.current_song.get_playback_options()
+            ),
+
+            volume=self.volume,
+        )
+
+        self.voice_client.play(
+            source,
+            expected_packet_loss=0.2,
+            signal_type="music",
+            after=lambda e: self.bot.loop.call_soon_threadsafe(
+                self.song_finished_event.set
+            ),
+        )
+
+    def restart_current_song(self):
+        log.info("Restarting current song...")
+        self.restarting = True
+        self.voice_client.stop()
 
     async def player_loop(self):
         await self.bot.wait_until_ready()
@@ -39,65 +69,52 @@ class GuildState:
         while True:
             self.song_finished_event.clear()
 
-            # Xử lý bài hát vừa phát xong (nếu có)
-            previous_song = self.current_song
-            if previous_song:
-                if self.loop_mode == LoopMode.QUEUE:
-                    await self.queue.put(previous_song)
-                elif self.loop_mode != LoopMode.SONG:
-                    previous_song.cleanup()
+            if not self.restarting:
+                # Xử lý bài hát vừa phát xong (nếu có)
+                previous_song = self.current_song
+                if previous_song:
+                    if self.loop_mode == LoopMode.QUEUE:
+                        await self.queue.put(previous_song)
+                    elif self.loop_mode != LoopMode.SONG:
+                        previous_song.cleanup()
 
-            # Lấy bài hát tiếp theo
-            try:
-                # Nếu không lặp lại bài hát, lấy bài mới từ hàng đợi
-                if self.loop_mode != LoopMode.SONG:
-                    self.current_song = await asyncio.wait_for(
-                        self.queue.get(), timeout=300
-                    )
-                # Nếu lặp lại, self.current_song vẫn giữ nguyên
-            except asyncio.TimeoutError:
-                log.info(
-                    f"Guild {self.guild_id} không hoạt động trong 5 phút, bắt đầu dọn dẹp."
-                )
-                if self.last_ctx and self.last_ctx.channel:
-                    try:
-                        await self.last_ctx.channel.send(
-                            "😴 Đã tự động ngắt kết nối do không hoạt động."
+                # Lấy bài hát tiếp theo
+                try:
+                    # Nếu không lặp lại bài hát, lấy bài mới từ hàng đợi
+                    if self.loop_mode != LoopMode.SONG:
+                        self.current_song = await asyncio.wait_for(
+                            self.queue.get(), timeout=300
                         )
-                    except discord.Forbidden:
-                        pass
-                return await self.cleanup()
+                    # Nếu lặp lại, self.current_song vẫn giữ nguyên
+                except asyncio.TimeoutError:
+                    log.info(
+                        f"Guild {self.guild_id} không hoạt động trong 5 phút, bắt đầu dọn dẹp."
+                    )
 
-            # Phát bài hát mới
-            try:
+                    if self.last_ctx and self.last_ctx.channel:
+                        try:
+                            await self.last_ctx.channel.send(
+                                "😴 Đã tự động ngắt kết nối do không hoạt động."
+                            )
+                        except discord.Forbidden:
+                            pass
+
+                    return await self.cleanup()
+
                 log.info(
                     f"Guild {self.guild_id}: Lấy bài hát '{self.current_song.title}' từ hàng đợi."
                 )
 
+            # Phát bài hát mới
+            try:
                 await self.update_now_playing_message(new_song=True)
 
-                source = discord.PCMVolumeTransformer(
-                    discord.FFmpegPCMAudio(
-                        self.current_song.filepath, **FFMPEG_OPTIONS
-                    ),
-
-                    volume=self.volume,
-                )
-
-                self.voice_client.play(
-                    source,
-                    expected_packet_loss=0.2,
-                    signal_type="music",
-                    after=lambda e: self.bot.loop.call_soon_threadsafe(
-                        self.song_finished_event.set
-                    ),
-                )
+                self.start_stream()
+                self.restarting = False
 
                 await self.song_finished_event.wait()
 
-                # Bỏ qua logic sau khi phát xong nếu đang seek
-                if self.is_seeking:
-                    self.is_seeking = False
+                if self.restarting:
                     continue
 
                 log.info(
@@ -134,6 +151,7 @@ class GuildState:
     async def update_now_playing_message(self, new_song=False):
         if not self.last_ctx:
             return
+        
         if not self.current_song and self.now_playing_message:
             try:
                 await self.now_playing_message.delete()
@@ -141,22 +159,27 @@ class GuildState:
                 pass
             self.now_playing_message = None
             return
+
         if not self.current_song:
             return
+        
         embed = self.create_now_playing_embed()
         view = self.create_control_view()
+        
         if new_song and self.now_playing_message:
             try:
                 await self.now_playing_message.delete()
             except discord.NotFound:
                 pass
             self.now_playing_message = None
+            
         if self.now_playing_message:
             try:
                 await self.now_playing_message.edit(embed=embed, view=view)
                 return
             except discord.NotFound:
                 self.now_playing_message = None
+                
         if not self.now_playing_message:
             try:
                 self.now_playing_message = await self.last_ctx.channel.send(

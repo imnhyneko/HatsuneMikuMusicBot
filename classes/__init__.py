@@ -1,3 +1,3 @@
 
-from .Song import *
-from .GuildState import *
+from .Song import Song
+from .GuildState import GuildState

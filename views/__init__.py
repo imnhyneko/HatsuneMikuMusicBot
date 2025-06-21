@@ -1,2 +1,2 @@
 
-from .SearchView import *
+from .SearchView import SearchView
