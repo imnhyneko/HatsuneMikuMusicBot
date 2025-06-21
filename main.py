@@ -23,6 +23,10 @@ def setup_logging():
 setup_logging()
 load_dotenv()
 
+sys.path.append("./classes")
+sys.path.append("./views")
+sys.path.append("./enums")
+
 TOKEN = os.getenv('DISCORD_BOT_TOKEN')
 if not TOKEN:
     logging.critical("LỖI: Vui lòng thiết lập biến DISCORD_BOT_TOKEN trong file .env")
